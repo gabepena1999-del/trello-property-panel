@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Property Data Power-Up</title>
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+</head>
+<body>
+<script>
+  // Iframe connector: registers a read-only card-back section.
+  var ICON = 'https://cdn-icons-png.flaticon.com/512/1946/1946488.png';
+  window.TrelloPowerUp.initialize({
+    'card-back-section': function (t) {
+      return t.card('desc').then(function (card) {
+        if (!card.desc || card.desc.indexOf('### Property Research') === -1) return null;
+        return {
+          title: 'Property Data',
+          icon: ICON,
+          content: { type: 'iframe', url: t.signUrl('./section.html'), height: 260 }
+        };
+      });
+    }
+  });
+</script>
+</body>
+</html>

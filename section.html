@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="https://p.trellocdn.com/power-up.min.css">
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:13px;margin:0;padding:2px 4px;color:#172b4d}
+    .row{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #ebecf0}
+    .lbl{flex:0 0 130px;font-weight:600;color:#44546f}
+    .val{flex:1;word-break:break-word}
+    .item{margin:1px 0}
+    .tag{display:inline-block;font-size:11px;font-weight:600;padding:0 6px;margin-left:4px;border-radius:3px;background:#dfe1e6;color:#172b4d;white-space:nowrap}
+    .tag.pa{background:#dcfff1;color:#216e4e}
+    .tag.sunbiz{background:#e9f2ff;color:#0055cc}
+    .tag.reo{background:#f3f0ff;color:#5e4db2}
+    .tag.unconf{background:#fff7d6;color:#7f5f01}
+    .muted{color:#626f86}
+    a{color:#0c66e4}
+    details{margin-top:6px} summary{cursor:pointer;color:#44546f;font-weight:600}
+  </style>
+</head>
+<body>
+<div id="content"><span class="muted">Loading…</span></div>
+<script>
+var t = window.TrelloPowerUp.iframe();
+
+// Display order: label shown -> keys looked up in the description block
+var FIELDS = [
+  ['Owner entity', ['Owner entity']],
+  ['Principal / Manager', ['Principal / Manager']],
+  ['Sunbiz Doc #', ['Sunbiz Doc #']],
+  ['Folio / APN', ['__folio']],
+  ['County', ['__county']],
+  ['Units', ['Units']],
+  ['Bldg SF', ['Bldg SF']],
+  ['Year built', ['__year']],
+  ['Last Sale', ['Last Sale']],
+  ['Phone(s)', ['Owner Phone(s)']],
+  ['Email(s)', ['Owner Email(s)']],
+  ['Mailing Address', ['Mailing Address']],
+  ['Confidence', ['Confidence']],
+  ['Flags', ['Flags']],
+  ['Last Researched', ['Last Researched']]
+];
+
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+
+function parseBlock(desc){
+  var i = desc.indexOf('### Property Research');
+  if (i === -1) return null;
+  var block = desc.slice(i + 21);
+  var next = block.search(/\n#{1,3} /);           // stop at the next heading
+  if (next !== -1) block = block.slice(0, next);
+  var out = {};
+  block.split('\n').forEach(function(line){
+    var m = line.match(/^\s*\*\*(.+?):\*\*\s*(.*)$/);
+    if (m) out[m[1].trim()] = m[2].trim();
+  });
+  // Pull folio, county, year built out of Notes
+  var notes = out['Notes'] || '';
+  var parts = notes.split(/;\s+/);
+  var keep = [];
+  parts.forEach(function(p){
+    var f = p.match(/^Folio\/APN:\s*(.*)$/i), c = p.match(/^County:\s*(.*)$/i), y = p.match(/^Year built:\s*(.*)$/i);
+    if (f) out.__folio = f[1]; else if (c) out.__county = c[1]; else if (y) out.__year = y[1]; else keep.push(p);
+  });
+  out.__notes = keep;
+  return out;
+}
+
+function tagClass(tag){
+  var x = tag.toLowerCase();
+  if (x.indexOf('unconfirmed') !== -1) return 'tag unconf';
+  if (x.indexOf('reonomy') !== -1) return 'tag reo';
+  if (x.indexOf('sunbiz') !== -1) return 'tag sunbiz';
+  if (/^\[pa\b/.test(x)) return 'tag pa';
+  return 'tag';
+}
+
+// Turn "text [Source]" into text + colored chips, linkify URLs
+function render(v){
+  var html = esc(v).replace(/(https?:\/\/[^\s;<]+)/g, function(u){
+    var short = u.replace(/^https?:\/\/(www\.)?/,'').split('/')[0];
+    return '<a href="'+u+'" target="_blank" rel="noopener">'+short+'</a>';
+  });
+  return html.replace(/\[([^\]]+)\]/g, function(m){ return '<span class="'+tagClass(m)+'">'+m.slice(1,-1)+'</span>'; });
+}
+
+// Split multi-value fields (phones, emails, principals) one per line
+function renderMulti(v, splitter){
+  // keep the trailing source tag attached to every item
+  var tail = (v.match(/(\s*\[[^\]]+\])+\s*$/) || [''])[0];
+  var body = tail ? v.slice(0, v.length - tail.length) : v;
+  var items = body.split(splitter).map(function(s){return s.trim();}).filter(Boolean);
+  if (items.length < 2) return render(v);
+  return items.map(function(s){
+    var hasTag = /\[[^\]]+\]\s*$/.test(s);
+    return '<div class="item">'+render(hasTag ? s : s + tail)+'</div>';
+  }).join('');
+}
+
+function draw(card){
+  var d = parseBlock(card.desc || '');
+  var el = document.getElementById('content');
+  if (!d){ el.innerHTML = '<span class="muted">No “### Property Research” block on this card.</span>'; return t.sizeTo('#content'); }
+  var rows = '';
+  FIELDS.forEach(function(f){
+    var v = null;
+    f[1].forEach(function(k){ if (v === null && d[k]) v = d[k]; });
+    if (!v) return;
+    var multi = /Phone|Email|Principal|Sunbiz|Mailing|Flags/.test(f[0]);
+    var splitter = f[0] === 'Flags' ? /\s\|\s/ : /;\s*/;
+    rows += '<div class="row"><div class="lbl">'+esc(f[0])+'</div><div class="val">'+(multi ? renderMulti(v, splitter) : render(v))+'</div></div>';
+  });
+  if (d.__notes && d.__notes.length){
+    rows += '<details><summary>Notes &amp; sources</summary>' + d.__notes.map(function(n){return '<div class="item">'+render(n)+'</div>';}).join('') + '</details>';
+  }
+  el.innerHTML = rows || '<span class="muted">Property Research block is empty.</span>';
+  document.querySelectorAll('details').forEach(function(x){ x.addEventListener('toggle', function(){ t.sizeTo('#content'); }); });
+  return t.sizeTo('#content');
+}
+
+t.render(function(){ return t.card('desc').then(draw); });
+</script>
+</body>
+</html>
